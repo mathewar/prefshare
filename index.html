@@ -128,15 +128,73 @@
                 }
             ];
 
+            // UPDATE: Values re-mapped to make N/A the '0' value for efficient compression.
             const ANSWER_OPTIONS = {
-                4: { label: "N/A", icon: "minus-circle", color: "bg-gray-400", defaultColor: "bg-gray-200" },
-                0: { label: "No", icon: "x-circle", color: "bg-red-500", defaultColor: "bg-gray-200" },
-                1: { label: "Maybe", icon: "help-circle", color: "bg-yellow-500", defaultColor: "bg-gray-200" },
-                2: { label: "Yes", icon: "check-circle", color: "bg-green-500", defaultColor: "bg-gray-200" },
-                3: { label: "Favorite", icon: "heart", color: "bg-blue-500", defaultColor: "bg-gray-200" }
+                0: { label: "N/A", icon: "minus-circle", color: "bg-gray-400", defaultColor: "bg-gray-200" },
+                1: { label: "No", icon: "x-circle", color: "bg-red-500", defaultColor: "bg-gray-200" },
+                2: { label: "Maybe", icon: "help-circle", color: "bg-yellow-500", defaultColor: "bg-gray-200" },
+                3: { label: "Yes", icon: "check-circle", color: "bg-green-500", defaultColor: "bg-gray-200" },
+                4: { label: "Favorite", icon: "heart", color: "bg-blue-500", defaultColor: "bg-gray-200" }
             };
             
             let totalQuestions = 0;
+
+            // --- COMPRESSION/DECOMPRESSION ---
+
+            const B62_CHARS = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+            function toBase62(num) {
+                if (num === BigInt(0)) return B62_CHARS[0];
+                let result = '';
+                let n = num;
+                const base = BigInt(62);
+                while (n > 0) {
+                    result = B62_CHARS[Number(n % base)] + result;
+                    n = n / base;
+                }
+                return result;
+            }
+
+            function fromBase62(str) {
+                let result = BigInt(0);
+                const base = BigInt(62);
+                for (let i = 0; i < str.length; i++) {
+                    const char = str[i];
+                    const charValue = B62_CHARS.indexOf(char);
+                    if (charValue === -1) continue; // Skip invalid characters
+                    result = result * base + BigInt(charValue);
+                }
+                return result;
+            }
+
+            function compress(prefsString) {
+                let num = BigInt(0);
+                const base = BigInt(5);
+                for (const char of prefsString) {
+                    num = num * base + BigInt(char);
+                }
+                return toBase62(num);
+            }
+
+            function decompress(base62String, length) {
+                const decimal = fromBase62(base62String);
+                let base5String = '';
+                let n = decimal;
+                const base = BigInt(5);
+                
+                if (n === BigInt(0)) return '0'.repeat(length);
+
+                while (n > 0) {
+                    base5String = (n % base).toString() + base5String;
+                    n = n / base;
+                }
+                
+                // Pad with default '0' (N/A)
+                while (base5String.length < length) {
+                    base5String = '0' + base5String;
+                }
+                return base5String;
+            }
 
             // --- UI GENERATION ---
 
@@ -196,13 +254,11 @@
                 let prefsString = '';
 
                 for (let i = 0; i < totalQuestions; i++) {
-                    // FIX: Correctly select the button within its question container.
                     const selectedButton = $(`div[data-question-index='${i}'] .pref-btn.selected`);
                     if (selectedButton.length > 0) {
                          prefsString += selectedButton.data('value');
                     } else {
-                        // Default to N/A if somehow nothing is selected
-                        prefsString += '4';
+                        prefsString += '0'; // Default to N/A
                     }
                 }
                 
@@ -210,12 +266,14 @@
                 if (name) {
                     params.set('name', name);
                 }
-                if (prefsString) {
-                    params.set('p', prefsString);
+
+                // Only add the 'p' parameter if it's not the default state (all '0's)
+                const defaultState = '0'.repeat(totalQuestions);
+                if (prefsString && prefsString !== defaultState) {
+                    const compressedPrefs = compress(prefsString);
+                    params.set('p', compressedPrefs);
                 }
 
-                // Use replaceState instead of pushState and wrap in a try-catch
-                // to prevent security errors in sandboxed environments (like blob: URLs).
                 try {
                     const newUrl = `?${params.toString()}`;
                     history.replaceState({}, '', newUrl);
@@ -227,20 +285,25 @@
             function restoreStateFromURL() {
                 const params = new URLSearchParams(window.location.search);
                 const name = params.get('name');
-                const prefsString = params.get('p');
+                const compressedPrefs = params.get('p');
 
                 if (name) {
                     $('#name-input').val(name);
                 }
 
+                let prefsString;
+                if (compressedPrefs) {
+                    prefsString = decompress(compressedPrefs, totalQuestions);
+                } else {
+                    prefsString = '0'.repeat(totalQuestions);
+                }
+
                 if (prefsString && prefsString.length === totalQuestions) {
                     for (let i = 0; i < prefsString.length; i++) {
                         const value = prefsString[i];
-                        // Programmatically click the button to set the state
-                        $(`.flex[data-question-index='${i}'] .pref-btn[data-value='${value}']`).trigger('click', [true]); // Pass a flag to prevent URL update
+                        $(`.flex[data-question-index='${i}'] .pref-btn[data-value='${value}']`).trigger('click', [true]);
                     }
                 } else {
-                    // If no valid prefs string, default all to N/A
                     resetPreferences(true);
                 }
             }
@@ -250,34 +313,30 @@
                 const value = $button.data('value');
                 const option = ANSWER_OPTIONS[value];
                 
-                // Reset siblings
                 $button.siblings().removeClass('selected').each(function() {
                     const siblingValue = $(this).data('value');
                     $(this).removeClass(Object.values(ANSWER_OPTIONS).map(o => o.color).join(' '));
                     $(this).addClass(ANSWER_OPTIONS[siblingValue].defaultColor);
                 });
 
-                // Style selected button
                 $button.removeClass(option.defaultColor).addClass(`selected ${option.color}`);
                 
-                // Avoid updating URL on initial page load restoration
                 if (!isInitialLoad) {
                     updateURL();
                 }
             }
             
             function resetPreferences(isInitialLoad = false) {
-                 // Reset all buttons to N/A (value 4)
+                 // Reset all buttons to N/A (value 0)
                 for (let i = 0; i < totalQuestions; i++) {
-                    const buttonToSelect = $(`.flex[data-question-index='${i}'] .pref-btn[data-value='4']`);
-                    updateButtonSelection(buttonToSelect, true); // Use true to prevent multiple URL updates
+                    const buttonToSelect = $(`.flex[data-question-index='${i}'] .pref-btn[data-value='0']`);
+                    updateButtonSelection(buttonToSelect, true);
                 }
                 if (!isInitialLoad) {
                     $('#name-input').val('');
-                    updateURL(); // Single URL update after all changes
+                    updateURL();
                 }
             }
-
 
             // --- EVENT HANDLERS ---
 
@@ -312,11 +371,10 @@
                 const name = $('#name-input').val().trim().replace(/ /g, '_') || 'shared';
                 const filename = `prefshare-${name}.png`;
 
-                // Use a short timeout to allow the loading spinner to render
                 setTimeout(() => {
                     html2canvas(gridElement, {
-                        backgroundColor: '#f8fafc', // Match body background
-                        scale: 2 // Increase resolution for better quality
+                        backgroundColor: '#f8fafc',
+                        scale: 2
                     }).then(canvas => {
                         const link = document.createElement('a');
                         link.download = filename;
@@ -335,7 +393,7 @@
             
             generatePreferenceCards();
             restoreStateFromURL();
-            lucide.createIcons(); // Re-run after dynamic content
+            lucide.createIcons();
         });
     </script>
 </body>
