@@ -66,6 +66,9 @@
             <input type="text" id="name-input" placeholder="Enter your name..." class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
         </div>
 
+        <!-- Status message for config loading -->
+        <div id="config-status" class="text-center mb-6"></div>
+
         <!-- Preferences Grid -->
         <div id="preferences-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <!-- Preference cards will be dynamically inserted here by jQuery -->
@@ -108,9 +111,24 @@
 
     <script>
         $(document).ready(function() {
+            // --- HOW TO USE A CUSTOM CONFIG ---
+            // To load a custom set of preferences, provide a URL to a valid JSON file
+            // using the 'config' query parameter.
+            //
+            // Example: ?config=https://example.com/my_preferences.json
+            //
+            // The JSON file must be an array of objects, each with 'category', 'icon',
+            // and 'questions' properties. For best results, host the file somewhere
+            // that allows CORS, like a public GitHub Gist.
+            //
+            // 1. Create your `preferences.json` file.
+            // 2. Create a public Gist at https://gist.github.com/
+            // 3. Click the "Raw" button on your Gist file to get the raw content URL.
+            // 4. Use that raw URL in the `config` parameter.
+
             // --- DATA & CONFIGURATION ---
 
-            const PREFERENCES_DATA = [
+            const DEFAULT_PREFERENCES_DATA = [
                 {
                     category: "Hobbies & Activities",
                     icon: "gamepad-2",
@@ -128,7 +146,6 @@
                 }
             ];
 
-            // UPDATE: Values re-mapped to make N/A the '0' value for efficient compression.
             const ANSWER_OPTIONS = {
                 0: { label: "N/A", icon: "minus-circle", color: "bg-gray-400", defaultColor: "bg-gray-200" },
                 1: { label: "No", icon: "x-circle", color: "bg-red-500", defaultColor: "bg-gray-200" },
@@ -138,6 +155,7 @@
             };
             
             let totalQuestions = 0;
+            let PREFERENCES_DATA = [];
 
             // --- COMPRESSION/DECOMPRESSION ---
 
@@ -161,7 +179,7 @@
                 for (let i = 0; i < str.length; i++) {
                     const char = str[i];
                     const charValue = B62_CHARS.indexOf(char);
-                    if (charValue === -1) continue; // Skip invalid characters
+                    if (charValue === -1) continue;
                     result = result * base + BigInt(charValue);
                 }
                 return result;
@@ -181,27 +199,31 @@
                 let base5String = '';
                 let n = decimal;
                 const base = BigInt(5);
-                
                 if (n === BigInt(0)) return '0'.repeat(length);
-
                 while (n > 0) {
                     base5String = (n % base).toString() + base5String;
                     n = n / base;
                 }
-                
-                // Pad with default '0' (N/A)
                 while (base5String.length < length) {
                     base5String = '0' + base5String;
                 }
                 return base5String;
             }
 
-            // --- UI GENERATION ---
+            // --- CORE APP LOGIC ---
+
+            function initializeApp(preferencesConfig) {
+                PREFERENCES_DATA = preferencesConfig;
+                $('#preferences-grid').empty(); // Clear grid for re-initialization
+                generatePreferenceCards();
+                restoreStateFromURL();
+                lucide.createIcons();
+                setupEventHandlers();
+            }
 
             function generatePreferenceCards() {
                 const grid = $('#preferences-grid');
                 let questionIndex = 0;
-
                 PREFERENCES_DATA.forEach(cat => {
                     const card = $(`
                         <div class="bg-white rounded-xl shadow-md p-6 border border-transparent hover:border-blue-400 transition-all duration-300">
@@ -212,73 +234,54 @@
                             <div class="space-y-4"></div>
                         </div>
                     `);
-
                     const questionsContainer = card.find('.space-y-4');
                     cat.questions.forEach(questionText => {
                         const questionBlock = $(`
                             <div>
                                 <p class="font-medium text-gray-700 mb-2">${questionText}</p>
-                                <div class="flex items-center space-x-1" data-question-index="${questionIndex}">
-                                    <!-- Answer buttons will be inserted here -->
-                                </div>
+                                <div class="flex items-center space-x-1" data-question-index="${questionIndex}"></div>
                             </div>
                         `);
-
                         const buttonGroup = questionBlock.find('.flex');
                         Object.entries(ANSWER_OPTIONS).forEach(([value, option]) => {
-                            const button = $(`
-                                <button class="pref-btn flex-1 p-1 rounded-md transition-colors text-gray-600 hover:bg-gray-300 ${option.defaultColor}" data-value="${value}">
-                                    <div class="flex flex-col items-center">
-                                        <i data-lucide="${option.icon}" class="w-4 h-4"></i>
-                                        <span class="text-xs font-medium mt-1">${option.label}</span>
-                                    </div>
-                                </button>
-                            `);
+                            const button = $(`<button class="pref-btn flex-1 p-1 rounded-md transition-colors text-gray-600 hover:bg-gray-300 ${option.defaultColor}" data-value="${value}"><div class="flex flex-col items-center"><i data-lucide="${option.icon}" class="w-4 h-4"></i><span class="text-xs font-medium mt-1">${option.label}</span></div></button>`);
                             buttonGroup.append(button);
                         });
-                        
                         questionsContainer.append(questionBlock);
                         questionIndex++;
                     });
-
                     grid.append(card);
                 });
                 totalQuestions = questionIndex;
-                lucide.createIcons();
             }
-
-            // --- STATE MANAGEMENT ---
 
             function updateURL() {
                 const name = $('#name-input').val().trim();
                 let prefsString = '';
-
                 for (let i = 0; i < totalQuestions; i++) {
                     const selectedButton = $(`div[data-question-index='${i}'] .pref-btn.selected`);
-                    if (selectedButton.length > 0) {
-                         prefsString += selectedButton.data('value');
-                    } else {
-                        prefsString += '0'; // Default to N/A
-                    }
+                    prefsString += selectedButton.length > 0 ? selectedButton.data('value') : '0';
                 }
-                
-                const params = new URLSearchParams();
+                const params = new URLSearchParams(window.location.search);
+                params.delete('p'); // Always start fresh
                 if (name) {
                     params.set('name', name);
                 }
-
-                // Only add the 'p' parameter if it's not the default state (all '0's)
                 const defaultState = '0'.repeat(totalQuestions);
                 if (prefsString && prefsString !== defaultState) {
-                    const compressedPrefs = compress(prefsString);
-                    params.set('p', compressedPrefs);
+                    params.set('p', compress(prefsString));
+                }
+                // Keep config param if it exists
+                const configUrl = new URLSearchParams(window.location.search).get('config');
+                if (configUrl) {
+                    params.set('config', configUrl);
                 }
 
                 try {
                     const newUrl = `?${params.toString()}`;
                     history.replaceState({}, '', newUrl);
                 } catch (e) {
-                    console.warn("Could not update URL, possibly due to a sandboxed environment:", e.message);
+                    console.warn("Could not update URL:", e.message);
                 }
             }
 
@@ -286,18 +289,10 @@
                 const params = new URLSearchParams(window.location.search);
                 const name = params.get('name');
                 const compressedPrefs = params.get('p');
-
                 if (name) {
                     $('#name-input').val(name);
                 }
-
-                let prefsString;
-                if (compressedPrefs) {
-                    prefsString = decompress(compressedPrefs, totalQuestions);
-                } else {
-                    prefsString = '0'.repeat(totalQuestions);
-                }
-
+                let prefsString = compressedPrefs ? decompress(compressedPrefs, totalQuestions) : '0'.repeat(totalQuestions);
                 if (prefsString && prefsString.length === totalQuestions) {
                     for (let i = 0; i < prefsString.length; i++) {
                         const value = prefsString[i];
@@ -312,25 +307,19 @@
                 const $button = $(button);
                 const value = $button.data('value');
                 const option = ANSWER_OPTIONS[value];
-                
                 $button.siblings().removeClass('selected').each(function() {
                     const siblingValue = $(this).data('value');
-                    $(this).removeClass(Object.values(ANSWER_OPTIONS).map(o => o.color).join(' '));
-                    $(this).addClass(ANSWER_OPTIONS[siblingValue].defaultColor);
+                    $(this).removeClass(Object.values(ANSWER_OPTIONS).map(o => o.color).join(' ')).addClass(ANSWER_OPTIONS[siblingValue].defaultColor);
                 });
-
                 $button.removeClass(option.defaultColor).addClass(`selected ${option.color}`);
-                
                 if (!isInitialLoad) {
                     updateURL();
                 }
             }
             
             function resetPreferences(isInitialLoad = false) {
-                 // Reset all buttons to N/A (value 0)
                 for (let i = 0; i < totalQuestions; i++) {
-                    const buttonToSelect = $(`.flex[data-question-index='${i}'] .pref-btn[data-value='0']`);
-                    updateButtonSelection(buttonToSelect, true);
+                    updateButtonSelection($(`.flex[data-question-index='${i}'] .pref-btn[data-value='0']`), true);
                 }
                 if (!isInitialLoad) {
                     $('#name-input').val('');
@@ -338,62 +327,59 @@
                 }
             }
 
-            // --- EVENT HANDLERS ---
-
-            $('#name-input').on('input', updateURL);
-
-            $('#preferences-grid').on('click', '.pref-btn', function(event, isInitialLoad = false) {
-                const questionIndex = $(this).closest('.flex').data('question-index');
-                const value = $(this).data('value');
-                const buttonToSelect = $(`.flex[data-question-index='${questionIndex}'] .pref-btn[data-value='${value}']`);
-                updateButtonSelection(buttonToSelect, isInitialLoad);
-            });
-
-            $('#reset-btn').on('click', function() {
-                resetPreferences();
-            });
-
-            $('#share-btn').on('click', function() {
-                navigator.clipboard.writeText(window.location.href).then(() => {
-                    const toast = $('#toast');
-                    toast.removeClass('hidden').addClass('toast-animate');
-                    setTimeout(() => {
-                        toast.addClass('hidden').removeClass('toast-animate');
-                    }, 3000);
+            function setupEventHandlers() {
+                // Use .off() to prevent duplicate handlers on re-initialization
+                $('#name-input').off('input').on('input', updateURL);
+                $('#preferences-grid').off('click').on('click', '.pref-btn', function(event, isInitialLoad = false) {
+                    updateButtonSelection(this, isInitialLoad);
                 });
-            });
-
-            $('#download-btn').on('click', function() {
-                const loadingOverlay = $('#loading-overlay');
-                loadingOverlay.removeClass('hidden');
-
-                const gridElement = document.getElementById('preferences-grid');
-                const name = $('#name-input').val().trim().replace(/ /g, '_') || 'shared';
-                const filename = `prefshare-${name}.png`;
-
-                setTimeout(() => {
-                    html2canvas(gridElement, {
-                        backgroundColor: '#f8fafc',
-                        scale: 2
-                    }).then(canvas => {
-                        const link = document.createElement('a');
-                        link.download = filename;
-                        link.href = canvas.toDataURL('image/png');
-                        link.click();
-                        loadingOverlay.addClass('hidden');
-                    }).catch(err => {
-                        console.error("Oops, something went wrong!", err);
-                        loadingOverlay.addClass('hidden');
-                        alert("Could not generate image.");
+                $('#reset-btn').off('click').on('click', () => resetPreferences());
+                $('#share-btn').off('click').on('click', function() {
+                    navigator.clipboard.writeText(window.location.href).then(() => {
+                        const toast = $('#toast');
+                        toast.removeClass('hidden').addClass('toast-animate');
+                        setTimeout(() => toast.addClass('hidden').removeClass('toast-animate'), 3000);
                     });
-                }, 100);
-            });
+                });
+                $('#download-btn').off('click').on('click', function() {
+                    $('#loading-overlay').removeClass('hidden');
+                    const gridElement = document.getElementById('preferences-grid');
+                    const name = $('#name-input').val().trim().replace(/ /g, '_') || 'shared';
+                    setTimeout(() => {
+                        html2canvas(gridElement, { backgroundColor: '#f8fafc', scale: 2 })
+                        .then(canvas => {
+                            const link = document.createElement('a');
+                            link.download = `prefshare-${name}.png`;
+                            link.href = canvas.toDataURL('image/png');
+                            link.click();
+                        }).catch(err => {
+                            console.error("Image generation failed:", err);
+                        }).finally(() => {
+                            $('#loading-overlay').addClass('hidden');
+                        });
+                    }, 100);
+                });
+            }
 
-            // --- INITIALIZATION ---
-            
-            generatePreferenceCards();
-            restoreStateFromURL();
-            lucide.createIcons();
+            // --- APP STARTUP ---
+            const params = new URLSearchParams(window.location.search);
+            const configUrl = params.get('config');
+
+            if (configUrl) {
+                $('#config-status').html('<p class="text-blue-600 animate-pulse">Loading custom preferences...</p>');
+                $.getJSON(configUrl)
+                    .done(function(data) {
+                        $('#config-status').html('<p class="text-green-600">Successfully loaded custom preferences!</p>');
+                        setTimeout(() => $('#config-status').fadeOut(), 2000);
+                        initializeApp(data);
+                    })
+                    .fail(function() {
+                        $('#config-status').html('<p class="text-red-600 font-semibold">Could not load custom preferences. Using default set.</p>');
+                        initializeApp(DEFAULT_PREFERENCES_DATA);
+                    });
+            } else {
+                initializeApp(DEFAULT_PREFERENCES_DATA);
+            }
         });
     </script>
 </body>
