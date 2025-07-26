@@ -196,8 +196,8 @@
                 let prefsString = '';
 
                 for (let i = 0; i < totalQuestions; i++) {
-                    // Find the selected button for each question index
-                    const selectedButton = $(`.pref-btn.selected[data-value][data-question-index='${i}']`);
+                    // FIX: Correctly select the button within its question container.
+                    const selectedButton = $(`div[data-question-index='${i}'] .pref-btn.selected`);
                     if (selectedButton.length > 0) {
                          prefsString += selectedButton.data('value');
                     } else {
@@ -214,7 +214,7 @@
                     params.set('p', prefsString);
                 }
 
-                // FIX: Use replaceState instead of pushState and wrap in a try-catch
+                // Use replaceState instead of pushState and wrap in a try-catch
                 // to prevent security errors in sandboxed environments (like blob: URLs).
                 try {
                     const newUrl = `?${params.toString()}`;
