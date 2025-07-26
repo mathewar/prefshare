@@ -4,9 +4,9 @@ PrefShare is a simple, privacy-focused web application that allows users to sele
 
 **All user data is encoded directly into the URL, meaning no information is ever saved or stored on any server, ensuring complete user privacy.**
 
-[Try it out here]([https://your-live-demo-link-here](https://mathewar.github.io/prefshare))
+[Try it out here](https://mathewar.github.io/prefshare)
 
-![PrefShare Screenshot]() <!-- Optional: Add a screenshot of the app -->
+![PrefShare Screenshot](screenshot.png)
 
 ## ✨ Features
 
