@@ -369,8 +369,8 @@
                 $('#config-status').html('<p class="text-blue-600 animate-pulse">Loading custom preferences...</p>');
                 $.getJSON(configUrl)
                     .done(function(data) {
-                        $('#config-status').html('<p class="text-green-600">Successfully loaded custom preferences!</p>');
-                        setTimeout(() => $('#config-status').fadeOut(), 2000);
+                        // On success, just hide the status message and initialize the app
+                        $('#config-status').hide();
                         initializeApp(data);
                     })
                     .fail(function() {
