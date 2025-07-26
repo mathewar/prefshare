@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrefShare - Share Your Preferences</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <!-- html2canvas for image download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        /* Custom styles to extend Tailwind */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* gray-50 */
+        }
+        /* Style for the sticky footer to have a backdrop blur effect */
+        .footer-blur {
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        /* Style for the selected preference button */
+        .pref-btn.selected {
+            color: white;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+        }
+        /* Animation for the toast notification */
+        @keyframes toast-in-out {
+            0% { transform: translateY(100%); opacity: 0; }
+            15% { transform: translateY(0); opacity: 1; }
+            85% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(100%); opacity: 0; }
+        }
+        .toast-animate {
+            animation: toast-in-out 3s ease-in-out forwards;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <div id="app" class="container mx-auto px-4 pb-32">
+        <!-- Header -->
+        <header class="text-center py-8 md:py-12">
+            <h1 class="text-4xl md:text-5xl font-bold text-gray-900">PrefShare</h1>
+            <p class="mt-2 text-lg text-gray-600">Select your preferences and share them with a link. No data is saved.</p>
+        </header>
+
+        <!-- Name Input -->
+        <div class="max-w-md mx-auto mb-10">
+            <label for="name-input" class="block text-sm font-medium text-gray-700 mb-1 text-center">Your Name (Optional)</label>
+            <input type="text" id="name-input" placeholder="Enter your name..." class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+        </div>
+
+        <!-- Preferences Grid -->
+        <div id="preferences-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Preference cards will be dynamically inserted here by jQuery -->
+        </div>
+    </div>
+
+    <!-- Sticky Footer with Action Buttons -->
+    <footer class="fixed bottom-0 left-0 right-0 p-4 border-t border-gray-200 footer-blur z-50">
+        <div class="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <p class="text-xs text-gray-600 text-center sm:text-left">
+                🔒 All information is stored in the URL. No data is saved or recorded.
+            </p>
+            <div class="flex items-center gap-2">
+                <button id="share-btn" class="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium">
+                    <i data-lucide="share-2" class="w-4 h-4"></i>
+                    <span>Share Link</span>
+                </button>
+                <button id="download-btn" class="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors shadow-sm font-medium">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    <span>Download</span>
+                </button>
+                <button id="reset-btn" class="flex items-center gap-2 bg-white text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors shadow-sm border border-gray-300 font-medium">
+                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                    <span>Reset</span>
+                </button>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Toast Notification for "Link Copied" -->
+    <div id="toast" class="fixed bottom-24 right-4 bg-gray-900 text-white py-2 px-4 rounded-lg shadow-lg hidden">
+        Link Copied!
+    </div>
+
+    <!-- Loading Spinner (for download) -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+         <i data-lucide="loader-2" class="w-16 h-16 text-white animate-spin"></i>
+    </div>
+
+
+    <script>
+        $(document).ready(function() {
+            // --- DATA & CONFIGURATION ---
+
+            const PREFERENCES_DATA = [
+                {
+                    category: "Hobbies & Activities",
+                    icon: "gamepad-2",
+                    questions: ["Board Games", "Video Games", "Reading", "Hiking", "Cooking", "Movies"]
+                },
+                {
+                    category: "Food & Drink",
+                    icon: "utensils-crossed",
+                    questions: ["Pizza", "Sushi", "Tacos", "Coffee", "Tea", "Wine"]
+                },
+                {
+                    category: "Travel & Destinations",
+                    icon: "plane",
+                    questions: ["Beach Vacations", "Mountain Trips", "City Exploration", "Road Trips", "Cruises", "Camping"]
+                }
+            ];
+
+            const ANSWER_OPTIONS = {
+                4: { label: "N/A", icon: "minus-circle", color: "bg-gray-400", defaultColor: "bg-gray-200" },
+                0: { label: "No", icon: "x-circle", color: "bg-red-500", defaultColor: "bg-gray-200" },
+                1: { label: "Maybe", icon: "help-circle", color: "bg-yellow-500", defaultColor: "bg-gray-200" },
+                2: { label: "Yes", icon: "check-circle", color: "bg-green-500", defaultColor: "bg-gray-200" },
+                3: { label: "Favorite", icon: "heart", color: "bg-blue-500", defaultColor: "bg-gray-200" }
+            };
+            
+            let totalQuestions = 0;
+
+            // --- UI GENERATION ---
+
+            function generatePreferenceCards() {
+                const grid = $('#preferences-grid');
+                let questionIndex = 0;
+
+                PREFERENCES_DATA.forEach(cat => {
+                    const card = $(`
+                        <div class="bg-white rounded-xl shadow-md p-6 border border-transparent hover:border-blue-400 transition-all duration-300">
+                            <div class="flex items-center gap-3 mb-4">
+                                <i data-lucide="${cat.icon}" class="w-6 h-6 text-blue-600"></i>
+                                <h3 class="text-xl font-semibold text-gray-800">${cat.category}</h3>
+                            </div>
+                            <div class="space-y-4"></div>
+                        </div>
+                    `);
+
+                    const questionsContainer = card.find('.space-y-4');
+                    cat.questions.forEach(questionText => {
+                        const questionBlock = $(`
+                            <div>
+                                <p class="font-medium text-gray-700 mb-2">${questionText}</p>
+                                <div class="flex items-center space-x-1" data-question-index="${questionIndex}">
+                                    <!-- Answer buttons will be inserted here -->
+                                </div>
+                            </div>
+                        `);
+
+                        const buttonGroup = questionBlock.find('.flex');
+                        Object.entries(ANSWER_OPTIONS).forEach(([value, option]) => {
+                            const button = $(`
+                                <button class="pref-btn flex-1 p-1 rounded-md transition-colors text-gray-600 hover:bg-gray-300 ${option.defaultColor}" data-value="${value}">
+                                    <div class="flex flex-col items-center">
+                                        <i data-lucide="${option.icon}" class="w-4 h-4"></i>
+                                        <span class="text-xs font-medium mt-1">${option.label}</span>
+                                    </div>
+                                </button>
+                            `);
+                            buttonGroup.append(button);
+                        });
+                        
+                        questionsContainer.append(questionBlock);
+                        questionIndex++;
+                    });
+
+                    grid.append(card);
+                });
+                totalQuestions = questionIndex;
+                lucide.createIcons();
+            }
+
+            // --- STATE MANAGEMENT ---
+
+            function updateURL() {
+                const name = $('#name-input').val().trim();
+                let prefsString = '';
+
+                for (let i = 0; i < totalQuestions; i++) {
+                    // Find the selected button for each question index
+                    const selectedButton = $(`.pref-btn.selected[data-value][data-question-index='${i}']`);
+                    if (selectedButton.length > 0) {
+                         prefsString += selectedButton.data('value');
+                    } else {
+                        // Default to N/A if somehow nothing is selected
+                        prefsString += '4';
+                    }
+                }
+                
+                const params = new URLSearchParams();
+                if (name) {
+                    params.set('name', name);
+                }
+                if (prefsString) {
+                    params.set('p', prefsString);
+                }
+
+                // FIX: Use replaceState instead of pushState and wrap in a try-catch
+                // to prevent security errors in sandboxed environments (like blob: URLs).
+                try {
+                    const newUrl = `?${params.toString()}`;
+                    history.replaceState({}, '', newUrl);
+                } catch (e) {
+                    console.warn("Could not update URL, possibly due to a sandboxed environment:", e.message);
+                }
+            }
+
+            function restoreStateFromURL() {
+                const params = new URLSearchParams(window.location.search);
+                const name = params.get('name');
+                const prefsString = params.get('p');
+
+                if (name) {
+                    $('#name-input').val(name);
+                }
+
+                if (prefsString && prefsString.length === totalQuestions) {
+                    for (let i = 0; i < prefsString.length; i++) {
+                        const value = prefsString[i];
+                        // Programmatically click the button to set the state
+                        $(`.flex[data-question-index='${i}'] .pref-btn[data-value='${value}']`).trigger('click', [true]); // Pass a flag to prevent URL update
+                    }
+                } else {
+                    // If no valid prefs string, default all to N/A
+                    resetPreferences(true);
+                }
+            }
+            
+            function updateButtonSelection(button, isInitialLoad = false) {
+                const $button = $(button);
+                const value = $button.data('value');
+                const option = ANSWER_OPTIONS[value];
+                
+                // Reset siblings
+                $button.siblings().removeClass('selected').each(function() {
+                    const siblingValue = $(this).data('value');
+                    $(this).removeClass(Object.values(ANSWER_OPTIONS).map(o => o.color).join(' '));
+                    $(this).addClass(ANSWER_OPTIONS[siblingValue].defaultColor);
+                });
+
+                // Style selected button
+                $button.removeClass(option.defaultColor).addClass(`selected ${option.color}`);
+                
+                // Avoid updating URL on initial page load restoration
+                if (!isInitialLoad) {
+                    updateURL();
+                }
+            }
+            
+            function resetPreferences(isInitialLoad = false) {
+                 // Reset all buttons to N/A (value 4)
+                for (let i = 0; i < totalQuestions; i++) {
+                    const buttonToSelect = $(`.flex[data-question-index='${i}'] .pref-btn[data-value='4']`);
+                    updateButtonSelection(buttonToSelect, true); // Use true to prevent multiple URL updates
+                }
+                if (!isInitialLoad) {
+                    $('#name-input').val('');
+                    updateURL(); // Single URL update after all changes
+                }
+            }
+
+
+            // --- EVENT HANDLERS ---
+
+            $('#name-input').on('input', updateURL);
+
+            $('#preferences-grid').on('click', '.pref-btn', function(event, isInitialLoad = false) {
+                const questionIndex = $(this).closest('.flex').data('question-index');
+                const value = $(this).data('value');
+                const buttonToSelect = $(`.flex[data-question-index='${questionIndex}'] .pref-btn[data-value='${value}']`);
+                updateButtonSelection(buttonToSelect, isInitialLoad);
+            });
+
+            $('#reset-btn').on('click', function() {
+                resetPreferences();
+            });
+
+            $('#share-btn').on('click', function() {
+                navigator.clipboard.writeText(window.location.href).then(() => {
+                    const toast = $('#toast');
+                    toast.removeClass('hidden').addClass('toast-animate');
+                    setTimeout(() => {
+                        toast.addClass('hidden').removeClass('toast-animate');
+                    }, 3000);
+                });
+            });
+
+            $('#download-btn').on('click', function() {
+                const loadingOverlay = $('#loading-overlay');
+                loadingOverlay.removeClass('hidden');
+
+                const gridElement = document.getElementById('preferences-grid');
+                const name = $('#name-input').val().trim().replace(/ /g, '_') || 'shared';
+                const filename = `prefshare-${name}.png`;
+
+                // Use a short timeout to allow the loading spinner to render
+                setTimeout(() => {
+                    html2canvas(gridElement, {
+                        backgroundColor: '#f8fafc', // Match body background
+                        scale: 2 // Increase resolution for better quality
+                    }).then(canvas => {
+                        const link = document.createElement('a');
+                        link.download = filename;
+                        link.href = canvas.toDataURL('image/png');
+                        link.click();
+                        loadingOverlay.addClass('hidden');
+                    }).catch(err => {
+                        console.error("Oops, something went wrong!", err);
+                        loadingOverlay.addClass('hidden');
+                        alert("Could not generate image.");
+                    });
+                }, 100);
+            });
+
+            // --- INITIALIZATION ---
+            
+            generatePreferenceCards();
+            restoreStateFromURL();
+            lucide.createIcons(); // Re-run after dynamic content
+        });
+    </script>
+</body>
+</html>
