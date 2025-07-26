@@ -215,10 +215,14 @@
             function initializeApp(preferencesConfig) {
                 PREFERENCES_DATA = preferencesConfig;
                 $('#preferences-grid').empty(); // Clear grid for re-initialization
+                
+                // FIX: The order of these functions is critical.
+                // We must generate cards, then set up event handlers,
+                // and only then restore the state (which triggers clicks).
                 generatePreferenceCards();
-                restoreStateFromURL();
                 lucide.createIcons();
                 setupEventHandlers();
+                restoreStateFromURL();
             }
 
             function generatePreferenceCards() {
@@ -299,6 +303,7 @@
                         $(`.flex[data-question-index='${i}'] .pref-btn[data-value='${value}']`).trigger('click', [true]);
                     }
                 } else {
+                    // If prefs string is invalid, reset to default state
                     resetPreferences(true);
                 }
             }
